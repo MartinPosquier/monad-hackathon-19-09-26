@@ -1,0 +1,43 @@
+# Exported by three-d-stage
+newmtl track
+Kd 0.5647 0.1651 0.0409
+Ks 0.2000 0.2000 0.2000
+Ns 116
+d 1.0000
+
+newmtl rail
+Kd 0.1946 0.2542 0.1119
+Ks 0.2000 0.2000 0.2000
+Ns 110
+d 1.0000
+
+newmtl funnel_glass
+Kd 0.2705 0.3419 0.1620
+Ks 0.2000 0.2000 0.2000
+Ns 140
+d 0.1800
+
+newmtl frame
+Kd 0.8632 0.7605 0.6105
+Ks 0.2000 0.2000 0.2000
+Ns 80
+d 1.0000
+
+newmtl brass
+Kd 0.4342 0.2582 0.0782
+Ks 0.2000 0.2000 0.2000
+Ns 134
+d 1.0000
+
+newmtl marble_body
+Kd 0.9301 0.8632 0.7454
+Ks 0.2000 0.2000 0.2000
+Ns 140
+d 1.0000
+
+newmtl marble_acrosome
+Kd 0.4793 0.1070 0.0273
+Ks 0.2000 0.2000 0.2000
+Ns 136
+d 1.0000
+

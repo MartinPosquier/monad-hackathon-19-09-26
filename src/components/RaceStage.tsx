@@ -37,10 +37,12 @@ export function RaceStage({ replay, racers, playerIndex, time, durationMs }: Pro
   useEffect(() => {
     let stopped = false;
     let dispose: (() => void) | undefined;
-    import("@/game/scene").then(({ createRaceScene }) => {
+    import("@/game/scene").then(async ({ createRaceScene }) => {
       if (stopped || !canvas.current) return;
       try {
-        dispose = createRaceScene(canvas.current, reader, racers, () => frameRef.current(), setError);
+        const cleanup = await createRaceScene(canvas.current, reader, racers, () => frameRef.current(), setError);
+        if (stopped) { cleanup(); return; }
+        dispose = cleanup;
         setError(null);
         setReady(true);
       } catch {

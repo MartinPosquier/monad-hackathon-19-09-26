@@ -10,7 +10,7 @@ import { surfaceHeight, MAX_RACERS, LAUNCH_WINDOW, FIRST_FINISH_SECONDS, FINISH_
 
 const DT = 1 / 60;
 const HZ = 30;
-const SCALE = 150;
+const SCALE = 80; // Le nouveau parcours dépasse 218 unités : éviter tout débordement Int16.
 
 export const planckEngine: RaceEngine = {
   name: "planck",
@@ -20,7 +20,7 @@ export const planckEngine: RaceEngine = {
     const world = new World({ gravity: Vec2(0, 0), allowSleep: false });
     const ground = world.createBody();
     for (const r of RAILS) ground.createFixture(new Edge(Vec2(r.ax, r.ay), Vec2(r.bx, r.by)), { friction: 0.02, restitution: 0.35 });
-    for (const row of PEGS) for (const p of row) ground.createFixture(new Circle(Vec2(p.x, p.y), p.radius), { friction: 0, restitution: 0.65 });
+    for (const row of PEGS) for (const p of row) ground.createFixture(new Circle(Vec2(p.x, p.y), p.radius), { friction: 0, restitution: 0.08 });
     for (const r of ROTORS) {
       const rotor = world.createKinematicBody({ position: Vec2(r.x, r.y), angle: r.phase, angularVelocity: r.speed });
       rotor.createFixture(new Box(r.radius, 0.22), { friction: 0.05, restitution: 0.6 });
@@ -32,16 +32,16 @@ export const planckEngine: RaceEngine = {
     const actors = racers.map((r, index) => {
       const i = grid[index];
       const rng = forkRng(seed, `physics:${r.id}`);
-      const body = world.createDynamicBody({ position: Vec2((i % 5 - 2) * 0.7, 2 + Math.floor((i % 10) / 5) * 0.7), active: false, linearDamping: 0.32, bullet: true, fixedRotation: true });
+      const body = world.createDynamicBody({ position: Vec2((i % 5 - 2) * 0.4, 0.1 + Math.floor((i % 10) / 5) * 0.4), active: false, linearDamping: 0.12, bullet: true, fixedRotation: true });
       // Catégorie 2 : aucun contact entre participants, uniquement avec le décor (1).
-      body.createFixture(new Circle(HEAD_RADIUS), { density: 1, friction: 0.02, restitution: 0.4, filterCategoryBits: 2, filterMaskBits: 1 });
-      return { body, release: Math.floor(i / 10), launched: false, impulseX: (rng() - 0.5) * 4, impulseY: 8 + rng() * 2, finish: 0 };
+      body.createFixture(new Circle(HEAD_RADIUS), { density: 1, friction: 0.02, restitution: 0.08, filterCategoryBits: 2, filterMaskBits: 1 });
+      return { body, release: Math.floor(i / 10), launched: false, impulseX: (rng() - 0.5) * 0.8, impulseY: 8 + rng() * 2, finish: 0 };
     });
     const raw: number[][] = [];
     const record = () => raw.push(actors.flatMap((a) => { const p = a.body.getPosition(); return [p.x, p.y]; }));
     record();
     let steps = 0;
-    for (steps = 1; steps <= 60 * 150; steps++) {
+    for (steps = 1; steps <= 60 * 240; steps++) {
       const t = steps * DT;
       for (const a of actors) {
         if (a.finish) continue;
@@ -111,3 +111,4 @@ export const planckEngine: RaceEngine = {
     };
   },
 };
+

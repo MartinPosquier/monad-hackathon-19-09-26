@@ -1,317 +1,131 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { RacerEntry } from "@/shared/types";
 import type { ReplayReader } from "@/shared/replay";
-import { FINISH_Y, PEGS, RAILS, ROTORS, STAGES, surfaceHeight, launchHeight } from "@/sim/track";
-import { buildBedroom } from "./bedroom";
+import { FINISH_Y, HEAD_RADIUS, ROTORS, TRACK_VERSION, launchHeight, trackPoint } from "@/sim/track";
 import { physicalSeconds, position } from "./replay";
+import { buildBedroom } from "./bedroom";
 
 export type CameraMode = "follow" | "overview";
 export interface SceneFrame { ms: number; follow: number; mode: CameraMode }
 
-/** Une seule scène GPU ; le navigateur lit le replay, il ne recalcule aucune collision. */
-export function createRaceScene(canvas: HTMLCanvasElement, reader: ReplayReader, racers: RacerEntry[], frame: () => SceneFrame, onError: (message: string) => void) {
+/** Le parcours visible vient exclusivement de l'OBJ fourni, converti en GLB. */
+export async function createRaceScene(canvas: HTMLCanvasElement, reader: ReplayReader, racers: RacerEntry[], frame: () => SceneFrame, onError: (message: string) => void) {
+  const imported = await new GLTFLoader().loadAsync(`/models/course.glb?v=${TRACK_VERSION}`);
   const mobile = window.matchMedia("(max-width: 700px)").matches;
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !mobile, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobile ? 1.25 : 1.75));
-  renderer.setClearColor(0x160d22);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.25 : 1.75));
+  renderer.setClearColor(0x17101f);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = !mobile;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(52, 1, 0.08, 500);
+  scene.add(new THREE.HemisphereLight(0xc3badb, 0x302130, 1.7));
+  const key = new THREE.DirectionalLight(0xffdcc0, 3.1);
+  key.position.set(-25, 65, 30); key.castShadow = !mobile;
+  key.shadow.mapSize.set(2048, 2048);
+  Object.assign(key.shadow.camera, { left: -68, right: 68, top: 45, bottom: -45, near: 1, far: 160 });
+  key.shadow.bias = -0.0005; key.shadow.normalBias = 0.03;
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0x9b7cde, 1.3); fill.position.set(35, 35, -40); scene.add(fill);
+  const roomScene = new THREE.Scene(); buildBedroom(roomScene);
+  const room = new THREE.Group(); [...roomScene.children].forEach((o) => room.add(o));
+  room.scale.setScalar(0.55); room.rotation.y = Math.PI / 2; room.position.set(-53, -4.5, 0); scene.add(room);
+  scene.add(imported.scene);
+  const mill = imported.scene.getObjectByName("mill");
+  imported.scene.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   const textures: THREE.Texture[] = [];
   let disposed = false;
-  const fog = new THREE.Fog(0x21132d, 100, 330);
-  scene.fog = fog;
-  buildBedroom(scene);
-  const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 1000);
-  scene.add(new THREE.HemisphereLight(0x9981df, 0x302031, 1.25));
-  const light = new THREE.DirectionalLight(0xff9273, 1.55);
-  light.position.set(-70, 75, 5);
-  scene.add(light);
-  const fill = new THREE.DirectionalLight(0x9561f3, 1.3);
-  fill.position.set(70, 70, -25);
-  scene.add(fill);
-  const stone = new THREE.MeshStandardMaterial({ color: 0x73c9ce, roughness: 0.67, metalness: 0.24 });
-  const metal = new THREE.MeshStandardMaterial({ color: 0xffd18a, roughness: 0.34, metalness: 0.6 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x9c5376, roughness: 0.65, metalness: 0.45 });
-  const violet = new THREE.MeshStandardMaterial({ color: 0xd98acd, roughness: 0.36, metalness: 0.35 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0xc1d7d9, transparent: true, opacity: 0.13, roughness: 0.2, depthWrite: false, side: THREE.DoubleSide });
-  const point = (x: number, y: number, h = 0) => new THREE.Vector3(x, surfaceHeight(x, y) + h, y);
-  const addMesh = (geometry: THREE.BufferGeometry, material: THREE.Material, pos?: THREE.Vector3) => {
-    const mesh = new THREE.Mesh(geometry, material);
-    if (pos) mesh.position.copy(pos);
-    scene.add(mesh);
-    return mesh;
-  };
-  const beam = (a: THREE.Vector3, b: THREE.Vector3, radius: number, material: THREE.Material) => {
-    const mesh = addMesh(new THREE.CylinderGeometry(radius, radius, a.distanceTo(b), 10), material, a.clone().add(b).multiplyScalar(0.5));
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-    return mesh;
-  };
+  const image = new THREE.TextureLoader().load("/images/ovule-user.png", (t) => { if (disposed) t.dispose(); });
+  image.colorSpace = THREE.SRGBColorSpace; textures.push(image);
+  const finishImage = new THREE.Sprite(new THREE.SpriteMaterial({ map: image, toneMapped: false }));
+  finishImage.position.set(60, 3.2, -9.5); finishImage.scale.set(4.2, 4.2 * 442 / 445, 1); scene.add(finishImage);
 
-  // Le relief est commun au sol, aux obstacles et aux trajectoires.
-  const slideColors = [0xefa972, 0x7acbd0, 0xb9a0dc, 0xf09d9a, 0xf4ca70, 0x8bcba9, 0xe99dbc];
-  for (const [stageIndex, stage] of STAGES.entries()) {
-    const end = stage.to === FINISH_Y ? FINISH_Y + 8 : stage.to;
-    const geo = new THREE.PlaneGeometry(22, end - stage.from, 30, Math.ceil((end - stage.from) * 2));
-    const positions = geo.getAttribute("position");
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i), y = positions.getY(i) + (stage.from + end) / 2;
-      positions.setXYZ(i, x, surfaceHeight(x, y) - 0.05, y);
-    }
-    // La projection x/y → x/z inverse l'orientation de la surface.
-    geo.setIndex(Array.from(geo.index!.array).reduce<number[]>((acc, _, i, a) => { if (i % 3 === 0) acc.push(a[i], a[i + 2], a[i + 1]); return acc; }, []));
-    geo.computeVertexNormals();
-    const slideMaterial = stone.clone(); slideMaterial.color.setHex(slideColors[stageIndex]); slideMaterial.roughness = 0.32; slideMaterial.metalness = 0.08;
-    addMesh(geo, slideMaterial);
-    beam(point(-11.2, stage.from, -0.45), point(11.2, stage.from, -0.45), 0.35, dark);
-    for (const x of [-11.1, 11.1]) {
-      beam(point(x, stage.from, -0.6), point(x, end, -0.6), 0.42, dark);
-      beam(point(x, stage.from, 0.7), point(x, end, 0.7), 0.07, metal);
-    }
-  }
-  for (const r of RAILS) {
-    if (r.kind === "wall" && Math.abs(r.ax) === 11) continue;
-    beam(point(r.ax, r.ay, 0.5), point(r.bx, r.by, 0.5), r.kind === "ladder" ? 0.42 : 0.2, r.kind === "ladder" ? metal : dark);
-  }
-  // Garde-corps vitrés et supports espacés : silhouette de machine suspendue.
-  for (let y = 0; y < FINISH_Y + 7; y += 8) for (const x of [-11, 11]) {
-    beam(point(x, y), point(x, y, 1.4), 0.07, metal);
-    const pane = addMesh(new THREE.PlaneGeometry(8, 1.3), glass, point(x, y + 4, 0.65));
-    pane.rotation.y = Math.PI / 2;
-    pane.rotation.z = -Math.atan(0.27);
-  }
-  // Lance de pompier rouge, embout laiton et tuyau souple raccordé.
-  const nozzle = new THREE.Group(); nozzle.position.copy(point(0, 2, 2)); scene.add(nozzle);
-  
-  const rubber = new THREE.MeshStandardMaterial({ color: 0x191b20, roughness: 0.66 });
-  const silver = new THREE.MeshStandardMaterial({ color: 0xcbd1d4, roughness: 0.25, metalness: 0.8 });
-  const hoseMaterial = new THREE.MeshStandardMaterial({ color: 0xa5a477, roughness: 0.95 });
-  const nozzlePart = (geo: THREE.BufferGeometry, mat: THREE.Material, z: number) => {
-    const mesh = new THREE.Mesh(geo, mat); mesh.rotation.x = Math.PI / 2; mesh.position.z = z; nozzle.add(mesh); return mesh;
-  };
-  nozzlePart(new THREE.CylinderGeometry(1.9, 2.5, 5, 32, 1, true), rubber, -3.2);
-  nozzlePart(new THREE.CylinderGeometry(1.9, 1.9, 1.2, 32, 1, true), silver, -0.7);
-  for (const z of [-5.7, -4.8, -1.5]) {
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.19, 10, 32), rubber); collar.position.z = z; nozzle.add(collar);
-  }
-  const handle = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.22, 10, 24, Math.PI), metal);
-  handle.position.set(0, 1.5, -3); nozzle.add(handle);
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.2, 1), rubber); grip.position.set(0, -1.8, -3.3); grip.rotation.x = -0.2; nozzle.add(grip);
-  const hoseCurve = new THREE.CatmullRomCurve3([point(0, -5, 2), new THREE.Vector3(-9, 51, -8), new THREE.Vector3(-30, 29, 2), new THREE.Vector3(-40, 17, 26), new THREE.Vector3(-30, 12, 47)]);
-  addMesh(new THREE.TubeGeometry(hoseCurve, 70, 1.65, 12, false), hoseMaterial);
-  const spray = new THREE.Group(); spray.position.copy(point(0, 2, 2)); scene.add(spray);
-  const sprayMat = new THREE.MeshStandardMaterial({ color: 0xf9ece4, transparent: true, opacity: 0.55, roughness: 0.2 });
-  for (let i = 0; i < 18; i++) {
-    const drop = new THREE.Mesh(new THREE.SphereGeometry(0.09 + (i % 3) * 0.035, 6, 4), sprayMat);
-    spray.add(drop);
-  }
-  // Traits concentriques épousant le bol du tourbillon.
-  for (const radius of [3.3, 5.3, 7.3, 9.3, 10.7]) {
-    const pts = Array.from({ length: 97 }, (_, i) => { const a = i / 96 * Math.PI * 2; return point(Math.cos(a) * radius, 27 + Math.sin(a) * radius, 0.03); });
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: radius === 10.7 ? 0x998bb7 : 0x65747a }));
-    scene.add(line);
-  }
-  for (const row of PEGS) for (const p of row) {
-    addMesh(new THREE.CylinderGeometry(p.radius, p.radius, 1.3, 12), metal, point(p.x, p.y, 0.65));
-    addMesh(new THREE.SphereGeometry(p.radius, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), violet, point(p.x, p.y, 1.3));
-  }
-  // Séparateurs de sortie de Galton : visuels courts, sans fermer le passage.
-  for (let x = -9; x <= 9; x += 3) beam(point(x, 62, 0.12), point(x, 65, 0.12), 0.045, metal);
-  const rotorGroups = ROTORS.map((r) => {
-    const group = new THREE.Group();
-    group.position.copy(point(r.x, r.y, 0.5));
-    for (const angle of [0, Math.PI / 2]) {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(r.radius * 2, 0.8, 0.44), violet);
-      blade.rotation.y = angle;
-      group.add(blade);
-    }
-    group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 1.4, 20), metal));
-    scene.add(group);
-    return group;
-  });
-  // Ligne d'arrivée, arche, puis plateau de réception.
-  for (let i = 0; i < 22; i++) for (let j = 0; j < 2; j++) {
-    const tile = addMesh(new THREE.BoxGeometry(1, 0.035, 0.8), (i + j) % 2 ? metal : dark, point(i - 10.5, FINISH_Y - 0.4 + j * 0.8, 0.02));
-    tile.rotation.x = Math.atan(0.27);
-  }
-  // Images fournies par le joueur, conservées intégralement (fond et filigrane inclus).
-  function photo(url: string, x: number, y: number, h: number, width: number, ratio: number) {
-    const texture = new THREE.TextureLoader().load(url, (loaded) => { if (disposed) loaded.dispose(); }, undefined, () => onError("A course image could not load. Reload the page."));
-    texture.colorSpace = THREE.SRGBColorSpace; textures.push(texture);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, toneMapped: false }));
-    sprite.position.copy(point(x, y, h)); sprite.scale.set(width, width / ratio, 1); scene.add(sprite);
-  }
-  photo("/images/ovule-user.png", 0, FINISH_Y + 3, 8.5, 16, 445 / 442);
-  photo("/images/lance-reference.png", -8, 9, 4, 4, 611 / 382);
-  const podiumPlaces = [{ x: 0, height: 1.7 }, { x: -3.2, height: 1.1 }, { x: 3.2, height: 0.7 }];
-  podiumPlaces.forEach((p, i) => {
-    addMesh(new THREE.CylinderGeometry(1.2, 1.35, p.height, 32), i === 0 ? violet : metal, point(p.x, FINISH_Y + 5, p.height / 2));
-  });
-
-  // Plaques lisibles dans la vue d'ensemble ; pas d'effets néon ni post-processing.
-  function label(text: string, x: number, y: number, h: number, width = 9) {
-    const c = document.createElement("canvas"); c.width = 768; c.height = 128;
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "#1c272c"; ctx.fillRect(0, 0, c.width, c.height);
-    ctx.fillStyle = "#e2e6e5"; ctx.font = "500 46px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, 384, 66);
-    const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace; textures.push(texture);
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width / 6), new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
-    mesh.position.copy(point(x, y, h)); mesh.rotation.x = -Math.PI / 2 + 0.27; mesh.rotation.z = Math.PI; scene.add(mesh);
-  }
-  STAGES.forEach((s, i) => label(`${String(i + 1).padStart(2, "0")}  ${s.name.toUpperCase()}`, -5.8, s.from + 1.4, 0.06, 8.8));
-
-
-  const headGeometry = new THREE.SphereGeometry(0.3, 14, 10);
-  const segmentGeometry = new THREE.SphereGeometry(1, 6, 4);
-  const shadowGeo = new THREE.CircleGeometry(0.48, 12);
-  const shadowMat = new THREE.MeshBasicMaterial({ color: 0x080c0f, transparent: true, opacity: 0.25, depthWrite: false });
-  const swimmerMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.15 });
-  const tailCount = mobile ? 7 : 10;
-  const heads = new THREE.InstancedMesh(headGeometry, swimmerMat, racers.length);
-  const tails = new THREE.InstancedMesh(segmentGeometry, swimmerMat, racers.length * tailCount);
-  const shadows = new THREE.InstancedMesh(shadowGeo, shadowMat, racers.length);
-  for (const mesh of [heads, tails, shadows]) {
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.frustumCulled = false; // Les matrices évoluent tout au long du parcours.
-    scene.add(mesh);
-  }
-  const swimmers = racers.map((r, index) => {
-    const group = new THREE.Group();
-    // Three prend des couleurs CSS HSL avec virgules, pas la syntaxe CSS4 du lobby.
+  const sphere = new THREE.SphereGeometry(1, mobile ? 12 : 20, mobile ? 8 : 14);
+  const tailGeo = new THREE.CylinderGeometry(1, 1, 1, mobile ? 5 : 8);
+  const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.24, metalness: 0.05, clearcoat: 0.55, clearcoatRoughness: 0.25 });
+  const tailCount = mobile ? 10 : 16;
+  const heads = new THREE.InstancedMesh(sphere, bodyMat, racers.length);
+  const caps = new THREE.InstancedMesh(sphere, bodyMat, racers.length);
+  const tails = new THREE.InstancedMesh(tailGeo, bodyMat, racers.length * tailCount);
+  for (const mesh of [heads, caps, tails]) { mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.frustumCulled = false; mesh.castShadow = !mobile; scene.add(mesh); }
+  racers.forEach((r, i) => {
     const color = new THREE.Color(r.color.replace(/hsl\((\d+) (\d+)% (\d+)%\)/, "hsl($1, $2%, $3%)"));
-    heads.setColorAt(index, color);
-    const head = new THREE.Mesh(headGeometry, swimmerMat); head.scale.set(1, 0.8, 1.35); group.add(head);
-    const tail = Array.from({ length: tailCount }, (_, i) => {
-      tails.setColorAt(index * tailCount + i, color);
-      const segment = new THREE.Mesh(segmentGeometry, swimmerMat);
-      const radius = 0.105 * (1 - i / 12);
-      segment.scale.set(radius, radius, 0.14); group.add(segment); return segment;
-    });
-    const shadow = new THREE.Mesh(shadowGeo, shadowMat); shadow.rotation.x = -Math.PI / 2;
-    return { group, head, tail, shadow };
+    heads.setColorAt(i, color.clone().lerp(new THREE.Color(0xffffff), 0.35));
+    caps.setColorAt(i, color);
+    for (let k = 0; k < tailCount; k++) tails.setColorAt(i * tailCount + k, color);
   });
-  const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
-  const finishOrder = (reader.replay.finishTimes ?? []).map((ms, index) => ({ ms, index })).sort((a, b) => a.ms - b.ms || a.index - b.index);
-  const allFinishedAt = finishOrder.at(-1)?.ms ?? Infinity;
-  const ring = addMesh(new THREE.TorusGeometry(0.64, 0.027, 6, 40), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  ring.rotation.x = Math.PI / 2;
-  const followMarker = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.45, 4), violet);
-  scene.add(followMarker);
-  let lastMs = -Infinity, lastFrame = performance.now(), lastFollow = -1, initialized = false;
-  const look = new THREE.Vector3();
-  const direction = new THREE.Vector3(0, 0, 1);
-  const desired = new THREE.Vector3();
-  const target = new THREE.Vector3();
-  const resize = new ResizeObserver(() => {
-    const { width, height } = canvas.getBoundingClientRect();
-    if (width > 0 && height > 0) { renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); }
-  });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.012, 6, 40), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  ring.rotation.x = Math.PI / 2; scene.add(ring);
+  const marker = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 5), new THREE.MeshBasicMaterial({ color: 0xf2d98b })); marker.rotation.z = Math.PI; scene.add(marker);
+  const dummy = new THREE.Object3D(), hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+  const up = new THREE.Vector3(0, 1, 0);
+  const point = (i: number, ms: number) => {
+    const [lane, s] = position(reader, i, ms);
+    const age = physicalSeconds(reader, ms) - (reader.replay.releaseTimes?.[i] ?? 0) / 1000;
+    return new THREE.Vector3(...trackPoint(lane, s, HEAD_RADIUS + 0.015 + launchHeight(age)));
+  };
+  const target = new THREE.Vector3(), look = new THREE.Vector3(), direction = new THREE.Vector3(1, 0, 0), desired = new THREE.Vector3();
+  const finish = new THREE.Vector3(...trackPoint(0, FINISH_Y, 0.5));
+  let lastTime = -Infinity, lastFollow = -1, initialized = false, lastFrame = performance.now();
+  const resize = new ResizeObserver(() => { const { width, height } = canvas.getBoundingClientRect(); if (width && height) { renderer.setSize(width, height, false); camera.aspect = width / height; camera.updateProjectionMatrix(); } });
   resize.observe(canvas);
-  const onLost = (e: Event) => { e.preventDefault(); renderer.setAnimationLoop(null); onError("3D rendering was interrupted. Reload the page to resume your race."); };
-  canvas.addEventListener("webglcontextlost", onLost);
+  const lost = (event: Event) => { event.preventDefault(); renderer.setAnimationLoop(null); onError("3D rendering was interrupted. Reload to resume."); };
+  canvas.addEventListener("webglcontextlost", lost);
   renderer.setAnimationLoop(() => {
     if (document.hidden) { lastFrame = performance.now(); return; }
-    const now = performance.now(), dt = Math.min((now - lastFrame) / 1000, 0.05); lastFrame = now;
+    const now = performance.now(), dt = Math.min(0.05, (now - lastFrame) / 1000); lastFrame = now;
     const { ms, follow, mode } = frame();
-    const time = Math.max(0, ms), index = Math.max(0, Math.min(racers.length - 1, follow));
-    const physical = physicalSeconds(reader, time);
-    const seek = !initialized || Math.abs(time - lastMs) > 1800 || index !== lastFollow;
-    lastMs = time; lastFollow = index;
-    swimmers.forEach((swimmer, i) => {
-      const [x, y] = position(reader, i, time);
-      const [px, py] = position(reader, i, Math.max(0, time - 90));
-      const [nx, ny] = position(reader, i, time + 90);
-      const releasedAt = reader.replay.releaseTimes?.[i] ?? 0;
-      const age = physical - releasedAt / 1000;
-      const airborne = reader.replay.releaseTimes ? launchHeight(age) : 0;
-      swimmer.group.position.copy(point(x, y, 0.36 + airborne));
-      swimmer.group.scale.setScalar(1);
-      const heading = Math.atan2(nx - px, ny - py);
-      swimmer.group.rotation.y = heading;
-      swimmer.tail.forEach((segment, k) => {
-        const [tx, ty] = position(reader, i, Math.max(releasedAt, time - (k + 1) * 28));
-        const dx = tx - x, dz = ty - y, length = Math.hypot(dx, dz);
-        const distance = 0.42 + k * 0.19;
-        const backX = length > 0.01 ? dx / length * distance : -Math.sin(heading) * distance;
-        const backZ = length > 0.01 ? dz / length * distance : -Math.cos(heading) * distance;
-        const tailFlight = reader.replay.releaseTimes ? launchHeight(Math.max(0, age - (k + 1) * 0.025)) : 0;
-        const tailHeight = surfaceHeight(x + backX, y + backZ) - surfaceHeight(x, y) - 0.2 + tailFlight - airborne;
-        segment.position.set(backX * Math.cos(heading) - backZ * Math.sin(heading), tailHeight, backX * Math.sin(heading) + backZ * Math.cos(heading));
-      });
-      swimmer.shadow.position.copy(point(x, y, 0.025));
-      swimmer.group.visible = ms >= releasedAt && (y < FINISH_Y - 0.01 || time < (reader.replay.finishTimes?.[i] ?? Infinity) + 1000);
-      const entry = Math.max(0, (time - (reader.replay.finishTimes?.[i] ?? Infinity)) / 1000);
-      if (entry > 0 && entry < 1) { swimmer.group.position.z += entry * 5; swimmer.group.scale.setScalar(1 - entry * 0.7); }
-      swimmer.shadow.visible = swimmer.group.visible;
-      if (time > allFinishedAt + 500) {
-        const podiumIndex = finishOrder.slice(0, 3).findIndex((p) => p.index === i);
-        swimmer.group.visible = podiumIndex >= 0;
-        swimmer.shadow.visible = false;
-        if (podiumIndex >= 0) {
-          const podium = podiumPlaces[podiumIndex];
-          swimmer.group.position.copy(point(podium.x, FINISH_Y + 5, podium.height + 0.6));
-          swimmer.group.scale.setScalar(1.7);
-          swimmer.group.rotation.y = Math.PI;
-        }
+    const time = Math.max(0, ms), selected = Math.max(0, Math.min(follow, racers.length - 1));
+    const seek = !initialized || Math.abs(time - lastTime) > 1000 || selected !== lastFollow;
+    lastTime = time; lastFollow = selected;
+    racers.forEach((_, i) => {
+      const pos = point(i, time), previous = point(i, Math.max(0, time - 55)), next = point(i, time + 55);
+      const forward = next.clone().sub(previous);
+      if (forward.lengthSq() < 1e-7) { const [lane, s] = position(reader, i, time); forward.set(...trackPoint(lane, Math.min(FINISH_Y, s + 0.1))).sub(new THREE.Vector3(...trackPoint(lane, Math.max(0, s - 0.1)))); }
+      forward.normalize();
+      const release = reader.replay.releaseTimes?.[i] ?? 0, finishMs = reader.replay.finishTimes?.[i] ?? Infinity;
+      const visible = ms >= release;
+      if (time >= finishMs) { const angle = i * 2.39996; pos.set(...trackPoint(0, FINISH_Y, HEAD_RADIUS + 0.02)); pos.x += Math.cos(angle) * 1.4; pos.z += Math.sin(angle) * 1.9; }
+      dummy.position.copy(pos); dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward); dummy.scale.set(HEAD_RADIUS, HEAD_RADIUS * 0.8, HEAD_RADIUS * 1.45); dummy.updateMatrix(); heads.setMatrixAt(i, visible ? dummy.matrix : hidden);
+      dummy.position.copy(pos).addScaledVector(forward, HEAD_RADIUS * 0.7); dummy.scale.set(HEAD_RADIUS * 0.89, HEAD_RADIUS * 0.71, HEAD_RADIUS * 0.88); dummy.updateMatrix(); caps.setMatrixAt(i, visible ? dummy.matrix : hidden);
+      let a = pos.clone().addScaledVector(forward, -HEAD_RADIUS);
+      for (let k = 0; k < tailCount; k++) {
+        const history = point(i, Math.max(release, time - (k + 1) * 22));
+        const back = history.sub(a); if (back.lengthSq() < 1e-7 || time >= finishMs) back.copy(forward).negate(); back.normalize();
+        const b = a.clone().addScaledVector(back, 0.085);
+        const radius = 0.047 * (1 - k / (tailCount + 1));
+        dummy.position.copy(a).add(b).multiplyScalar(0.5); dummy.quaternion.setFromUnitVectors(up, b.clone().sub(a).normalize()); dummy.scale.set(radius, a.distanceTo(b) + 0.015, radius); dummy.updateMatrix();
+        tails.setMatrixAt(i * tailCount + k, visible ? dummy.matrix : hidden); a = b;
       }
-      swimmer.group.updateMatrixWorld(true); swimmer.shadow.updateMatrixWorld(true);
-      heads.setMatrixAt(i, swimmer.group.visible ? swimmer.head.matrixWorld : hiddenMatrix);
-      swimmer.tail.forEach((segment, k) => tails.setMatrixAt(i * tailCount + k, swimmer.group.visible ? segment.matrixWorld : hiddenMatrix));
-      shadows.setMatrixAt(i, swimmer.shadow.visible ? swimmer.shadow.matrixWorld : hiddenMatrix);
-      if (i === index) {
-        target.copy(swimmer.group.position);
-        const delta = new THREE.Vector3(nx - px, 0, ny - py);
-        if (delta.lengthSq() > 0.0001) direction.lerp(delta.normalize(), seek ? 1 : 1 - Math.exp(-dt * 2)).normalize();
-      }
+      if (i === selected) { target.copy(pos); if (forward.lengthSq() > 0.1) direction.lerp(forward, seek ? 1 : 1 - Math.exp(-dt * 3)).normalize(); }
     });
-    heads.instanceMatrix.needsUpdate = true; tails.instanceMatrix.needsUpdate = true; shadows.instanceMatrix.needsUpdate = true;
-    const burstAge = physical - Math.floor(physical);
-    const burst = ms >= 0 && physical < Math.ceil(racers.length / 10) && burstAge < 0.42;
-    const kick = burst ? Math.sin(burstAge / 0.42 * Math.PI) : 0;
-    nozzle.position.z = 2 - kick * 0.45;
-    spray.visible = burst;
-    spray.children.forEach((drop, i) => {
-      const angle = i * 2.39996, radius = burstAge * (0.8 + i % 4);
-      drop.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius + 4 * burstAge - 4.905 * burstAge * burstAge, burstAge * (9 + i % 5));
-    });
-    rotorGroups.forEach((group, i) => { group.rotation.y = -(ROTORS[i].phase + physical * ROTORS[i].speed); });
-    ring.position.copy(target).add(new THREE.Vector3(0, -0.2, 0));
-    followMarker.position.copy(target).add(new THREE.Vector3(0, 1.8, 0)); followMarker.rotation.z = Math.PI;
-    const finished = time >= (reader.replay.finishTimes?.[index] ?? Infinity);
-    const waiting = ms < (reader.replay.releaseTimes?.[index] ?? 0);
-    ring.visible = !finished && !waiting; followMarker.visible = !finished && !waiting;
+    heads.instanceMatrix.needsUpdate = true; caps.instanceMatrix.needsUpdate = true; tails.instanceMatrix.needsUpdate = true;
+    if (mill) mill.rotation.y = physicalSeconds(reader, time) * ROTORS[0].speed;
+    const finished = time >= (reader.replay.finishTimes?.[selected] ?? Infinity);
+    const waiting = ms < (reader.replay.releaseTimes?.[selected] ?? 0);
+    ring.position.copy(target).add(new THREE.Vector3(0, -HEAD_RADIUS * 0.6, 0)); marker.position.copy(target).add(new THREE.Vector3(0, 0.85, 0));
+    ring.visible = marker.visible = !finished && !waiting;
     if (mode === "overview" || ms < 0) {
-      const zoom = Math.max(1, 1.25 / camera.aspect);
-      desired.set(-85 * zoom, 20 + 80 * zoom, 95 + 160 * zoom); target.set(0, 23, 90);
-      scene.fog = null;
+      const zoom = Math.max(1, 1.7 / camera.aspect); desired.set(18 * zoom, 62 * zoom, 85 * zoom); target.set(-2, 8, -2);
     } else if (waiting) {
-      scene.fog = fog; desired.copy(point(8, -9, 8)); target.copy(point(0, 5, 2));
+      desired.set(-55, 25, 7); target.set(-49, 21, 0);
     } else if (finished) {
-      scene.fog = fog;
-      const zoom = Math.max(1, 1.15 / camera.aspect);
-      desired.copy(point(12 * zoom, FINISH_Y - 23 * zoom, 22 * zoom)); target.copy(point(0, FINISH_Y + 3, 6));
+      const zoom = Math.max(1, 1 / camera.aspect); desired.copy(finish).add(new THREE.Vector3(-7 * zoom, 6 * zoom, 8 * zoom)); target.copy(finish).add(new THREE.Vector3(1, 1.5, 0));
     } else {
-      scene.fog = fog;
-      const distance = mobile ? 12 : 10.5;
-      desired.copy(target).addScaledVector(direction, -distance).add(new THREE.Vector3(0, reduced ? 13 : 9, 0));
-      target.addScaledVector(direction, 4);
-      // Au-dessus de toute géométrie proche : pas de caméra à l'intérieur d'un barreau.
-      desired.y = Math.max(desired.y, surfaceHeight(desired.x, desired.z) + 5.5);
+      desired.copy(target).addScaledVector(direction, -(mobile ? 4.7 : 4)).add(new THREE.Vector3(0, reduced ? 5 : 3.2, 0)); target.addScaledVector(direction, 1.6);
     }
-    const blend = seek ? 1 : 1 - Math.exp(-dt * (reduced ? 2 : 4));
-    camera.position.lerp(desired, blend); look.lerp(target, blend); camera.lookAt(look);
-    initialized = true;
+    const alpha = seek ? 1 : 1 - Math.exp(-dt * (reduced ? 2.5 : 5));
+    camera.position.lerp(desired, alpha); look.lerp(target, alpha); camera.lookAt(look); initialized = true;
     renderer.render(scene, camera);
   });
   return () => {
-    disposed = true;
-    renderer.setAnimationLoop(null); resize.disconnect(); canvas.removeEventListener("webglcontextlost", onLost);
+    disposed = true; renderer.setAnimationLoop(null); resize.disconnect(); canvas.removeEventListener("webglcontextlost", lost);
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
-    scene.traverse((o) => { if (o instanceof THREE.Mesh || o instanceof THREE.Line) { geometries.add(o.geometry); const m = o.material; (Array.isArray(m) ? m : [m]).forEach((v) => materials.add(v)); } if (o instanceof THREE.Sprite) materials.add(o.material); if (o instanceof THREE.InstancedMesh) o.dispose(); });
-    geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); textures.forEach((t) => t.dispose());
-    // Ne pas perdre volontairement le contexte : React StrictMode et le hot reload
-    // réutilisent ce canvas immédiatement. dispose libère déjà les ressources GPU.
-    renderer.dispose();
+    scene.traverse((o) => { if (o instanceof THREE.Mesh || o instanceof THREE.Line) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => materials.add(m)); } if (o instanceof THREE.Sprite) materials.add(o.material); if (o instanceof THREE.InstancedMesh) o.dispose(); });
+    geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); textures.forEach((t) => t.dispose()); renderer.dispose();
   };
 }
