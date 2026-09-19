@@ -9,8 +9,14 @@ const nextConfig: NextConfig = {
   // Le tunnel cloudflared (npm run tunnel) sert l'app sous *.trycloudflare.com :
   // sans cette entrée, `next dev` refuse ses requêtes vers les assets de dev.
   allowedDevOrigins: ["*.trycloudflare.com"],
+  // beforeFiles : sans lui, les route handlers /api/* locaux (qui existent dans l'app)
+  // seraient servis en priorité et le relais ne s'appliquerait jamais.
   async rewrites() {
-    return backend ? [{ source: "/api/:path*", destination: `${backend}/api/:path*` }] : [];
+    return {
+      beforeFiles: backend ? [{ source: "/api/:path*", destination: `${backend}/api/:path*` }] : [],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 
