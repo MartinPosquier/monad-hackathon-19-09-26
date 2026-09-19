@@ -30,6 +30,11 @@ import { botNames, playerName, racerColor } from "./racers";
 /** Marge après l'arrivée du dernier, pour que chacun voie la fin avant le classement. */
 const FINISH_GRACE_MS = 2_000;
 const MAX_HISTORY = 20;
+/**
+ * Âge maximal d'un ticket brûlé. Les raceId sont horodatés : un joinRace ancien ne peut pas
+ * être rejoué après un redémarrage du serveur (qui vide la liste des tx déjà utilisées).
+ */
+export const MAX_TICKET_AGE_MS = 15 * 60_000;
 
 export interface LobbyOptions {
   engine: RaceEngine;
@@ -60,6 +65,8 @@ export interface JoinRequest {
   name?: unknown;
   /** Tx joinRace vérifiée (mode testnet). null en mode stub. */
   joinTx: Hash | null;
+  /** raceId lu dans l'event RaceJoined de cette tx (mode testnet). */
+  ticketRaceId?: string | null;
 }
 
 export class Lobby {
@@ -129,6 +136,13 @@ export class Lobby {
 
     const tx = req.joinTx?.toLowerCase();
     if (tx && this.usedTxs.has(tx)) throw new HttpError(409, "this joinRace transaction was already used");
+    if (req.ticketRaceId != null) {
+      const ticket = BigInt(req.ticketRaceId);
+      if (ticket > BigInt(room.raceId)) throw new HttpError(400, "this ticket was burned for a race that does not exist yet");
+      if (ticket < BigInt(this.now() - MAX_TICKET_AGE_MS)) {
+        throw new HttpError(400, "this joinRace transaction is too old — claim a ticket and join the current race");
+      }
+    }
     if (room.racers.some((r) => r.address?.toLowerCase() === addr)) {
       throw new HttpError(409, "you are already in this race");
     }

@@ -1,7 +1,7 @@
 /** Cycle de vie du lobby, avec une horloge simulée : aucune attente réelle. */
 import type { Address, Hash, Hex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Lobby, type Room } from "@/server/rooms";
+import { Lobby, MAX_TICKET_AGE_MS, type Room } from "@/server/rooms";
 import { HttpError } from "@/server/http";
 import { stubEngine } from "@/sim/stubEngine";
 
@@ -67,6 +67,16 @@ describe("room ouverte", () => {
     lobby.join({ address: A, joinTx: tx(1) });
     expect(() => lobby.join({ address: A, joinTx: tx(2) })).toThrow(/already in this race/);
     expect(() => lobby.join({ address: B, joinTx: tx(2) })).not.toThrow();
+  });
+
+  it("refuse un joinRace trop ancien ou visant une course future (rejeu après redémarrage)", () => {
+    const lobby = makeLobby();
+    const open = BigInt(lobby.openRaceId);
+    const tooOld = String(BigInt(clock - MAX_TICKET_AGE_MS) - 1n);
+    expect(() => lobby.join({ address: A, joinTx: tx(1), ticketRaceId: tooOld })).toThrow(/too old/);
+    expect(() => lobby.join({ address: A, joinTx: tx(2), ticketRaceId: String(open + 1n) })).toThrow(/does not exist yet/);
+    const recent = String(BigInt(clock - 60_000));
+    expect(lobby.join({ address: A, joinTx: tx(3), ticketRaceId: recent }).room.raceId).toBe(lobby.openRaceId);
   });
 
   it("nettoie les pseudos et retombe sur l'adresse abrégée", () => {

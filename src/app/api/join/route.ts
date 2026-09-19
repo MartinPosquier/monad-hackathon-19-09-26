@@ -18,8 +18,8 @@ export function POST(req: Request) {
 
     if (serverConfig().mode === "testnet") {
       if (!body.txHash || !isHash(body.txHash)) throw new HttpError(400, "missing joinRace transaction hash");
-      await verifyJoinTx(body.txHash, address);
-      return getLobby().join({ address, name: body.name, joinTx: body.txHash });
+      const { raceId } = await verifyJoinTx(body.txHash, address);
+      return getLobby().join({ address, name: body.name, joinTx: body.txHash, ticketRaceId: raceId.toString() });
     }
     return getLobby().join({ address, name: body.name, joinTx: null });
   });

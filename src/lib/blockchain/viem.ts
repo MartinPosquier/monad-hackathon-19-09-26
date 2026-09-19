@@ -20,7 +20,7 @@ import {
 import { spermRaceAbi } from "@/lib/contract/spermRace";
 import { monadTestnet, withGasMargin } from "@/shared/chain";
 import type { AppConfig, Attestation, PlayerStatus } from "@/shared/types";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { UserFacingError, type BlockchainService, type JoinOutcome, type OnStage, type TxTiming } from "./types";
 
 /** Un transfert sans données coûte exactement 21 000 : Monad facture le limit, on ne met aucune marge. */
@@ -237,11 +237,20 @@ export class ViemBlockchainService implements BlockchainService {
     }, onStage);
 
     // Le ticket est brûlé : le serveur relit l'event RaceJoined puis admet le joueur.
-    const out = await api<Omit<JoinOutcome, "timing">>("/api/join", {
-      method: "POST",
-      body: { address: account, txHash: timing.hash, name },
-    });
-    return { ...out, timing };
+    // Son RPC peut voir le reçu un peu après le wallet : on réessaie avec la MÊME tx,
+    // jamais en rebrûlant un ticket.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const out = await api<Omit<JoinOutcome, "timing">>("/api/join", {
+          method: "POST",
+          body: { address: account, txHash: timing.hash, name },
+        });
+        return { ...out, timing };
+      } catch (e) {
+        if (!(e instanceof ApiError) || e.status !== 404 || attempt >= 5) throw e;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
   }
 
   async submitResult(): Promise<never> {
