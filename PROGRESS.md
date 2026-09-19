@@ -12,7 +12,7 @@ l'interface `RaceEngine` (`src/sim/index.ts`) et sur `RaceDetail.replay`.
 | 3 | Lobby + bots | ✅ | Rooms en mémoire, bots étiquetés BOT, compte à rebours, `startAt` commun, « Start now » hôte. Tests `tests/rooms.test.ts` |
 | 4 | Blockchain réelle | 🟡 code prêt, déploiement en attente de MON | `SpermRace.sol` (21 tests sur EVM en mémoire, chain 10143), compile/deploy viem, attestation EIP-712, `claimTicket` + `joinRace` signés par le joueur |
 | 5 | Résultat + leaderboard | ✅ | Podium, « #17 / 50 », temps, classement complet, preuve on-chain, `/leaderboard` |
-| 6 | Polish + démo | 🟡 | UI néon Monad, chrono de finalité, tunnel cloudflared, runbook de démo. Trails / SPECTATE 3D = jeu |
+| 6 | Polish + démo | 🟡 | UI néon Monad, chrono de finalité, tunnel cloudflared testé (HTTP/2 forcé, QUIC bloqué sur ce réseau), `DEMO.md`, `npm run e2e`. Trails / SPECTATE 3D = jeu ; répétitions = humain |
 
 ## Vérifications du plan
 

@@ -39,8 +39,11 @@ Le testnet est réinitialisé ? Même commande : `npm run deploy`. Le stub reste
 | `npm run simulate -- --seed 0xabc --check` | Joue une course sans UI, vérifie le déterminisme |
 | `npm run simulate -- --sanity 5` | 5 seeds aléatoires : tout le monde finit, écart < 20 s |
 | `npm test` | Contrat (EVM en mémoire, chain 10143), lobby, moteur |
+| `npm run e2e` | Boucle complète sur le testnet sans navigateur (le deployer joue le joueur), serveur lancé |
 | `npm run demo` | Build de production + serveur sur :3100 (plus rapide que `dev` le jour J) |
-| `npm run tunnel` | Tunnel cloudflared → URL https publique pour le jury |
+| `npm run tunnel` | Tunnel cloudflared (HTTP/2 forcé : QUIC est souvent bloqué) → URL https publique |
+
+Déroulé de la démo, pitch et plans B : [DEMO.md](DEMO.md).
 
 ## Architecture
 

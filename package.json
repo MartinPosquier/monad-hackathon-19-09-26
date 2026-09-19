@@ -18,8 +18,9 @@
     "threshold": "tsx scripts/set-threshold.ts",
     "nonce": "tsx scripts/nonce.ts",
     "verify:fees": "tsx scripts/verify-fees.ts",
+    "e2e": "tsx scripts/e2e.ts",
     "simulate": "tsx scripts/simulate.ts",
-    "tunnel": "cloudflared tunnel --url http://localhost:3100"
+    "tunnel": "cloudflared tunnel --no-autoupdate --protocol http2 --url http://localhost:3100"
   },
   "dependencies": {
     "next": "16.3.5",
