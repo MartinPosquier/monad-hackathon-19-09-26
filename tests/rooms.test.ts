@@ -1,7 +1,7 @@
 /** Cycle de vie du lobby, avec une horloge simulée : aucune attente réelle. */
 import type { Address, Hash, Hex } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Lobby, MAX_TICKET_AGE_MS, type Room } from "@/server/rooms";
+import { Lobby, type Room } from "@/server/rooms";
 import { HttpError } from "@/server/http";
 import { stubEngine } from "@/sim/stubEngine";
 
@@ -69,14 +69,43 @@ describe("room ouverte", () => {
     expect(() => lobby.join({ address: B, joinTx: tx(2) })).not.toThrow();
   });
 
-  it("refuse un joinRace trop ancien ou visant une course future (rejeu après redémarrage)", () => {
+  it("accepte un ticket pour la room ouverte même restée vide longtemps (régression audit P1 n° 1)", () => {
     const lobby = makeLobby();
-    const open = BigInt(lobby.openRaceId);
-    const tooOld = String(BigInt(clock - MAX_TICKET_AGE_MS) - 1n);
-    expect(() => lobby.join({ address: A, joinTx: tx(1), ticketRaceId: tooOld })).toThrow(/too old/);
-    expect(() => lobby.join({ address: A, joinTx: tx(2), ticketRaceId: String(open + 1n) })).toThrow(/does not exist yet/);
-    const recent = String(BigInt(clock - 60_000));
-    expect(lobby.join({ address: A, joinTx: tx(3), ticketRaceId: recent }).room.raceId).toBe(lobby.openRaceId);
+    const open = lobby.openRaceId;
+    clock += 16 * 60_000;
+    expect(lobby.join({ address: A, joinTx: tx(1), ticketRaceId: open }).room.raceId).toBe(open);
+  });
+
+  it("refuse un joinRace visant une course inconnue : rejeu après redémarrage, course future", () => {
+    const before = makeLobby();
+    const oldRace = before.openRaceId;
+    before.join({ address: A, joinTx: tx(1), ticketRaceId: oldRace });
+    clock += 1_000;
+    const restarted = makeLobby(); // redémarrage : la liste des tx utilisées est vide
+    expect(() => restarted.join({ address: A, joinTx: tx(1), ticketRaceId: oldRace })).toThrow(/does not know/);
+    const future = String(BigInt(restarted.openRaceId) + 1n);
+    expect(() => restarted.join({ address: B, joinTx: tx(2), ticketRaceId: future })).toThrow(/does not know/);
+  });
+
+  it("rend l'inscription existante si la même tx est rejouée (réponse HTTP perdue)", () => {
+    const lobby = makeLobby();
+    const first = lobby.join({ address: A, name: "Alice", joinTx: tx(1), ticketRaceId: lobby.openRaceId });
+    const again = lobby.join({ address: A, name: "Alice", joinTx: tx(1), ticketRaceId: lobby.openRaceId });
+    expect(again.racer).toEqual(first.racer);
+    expect(again.room.racers).toHaveLength(1);
+    expect(() => lobby.join({ address: B, joinTx: tx(1) })).toThrow(/already used/);
+  });
+
+  it("une room pleine part aussitôt et le ticket suivant entre dans la course d'après", () => {
+    const lobby = makeLobby();
+    const full = lobby.openRaceId;
+    for (let i = 0; i < 40; i++) {
+      const address = `0x${(i + 16).toString(16).padStart(40, "0")}` as Address;
+      lobby.join({ address, joinTx: tx(100 + i), ticketRaceId: full });
+    }
+    const late = lobby.join({ address: A, joinTx: tx(1), ticketRaceId: full });
+    expect(late.room.raceId).not.toBe(full);
+    expect(lobby.race(full)!.status).toBe("starting");
   });
 
   it("nettoie les pseudos et retombe sur l'adresse abrégée", () => {

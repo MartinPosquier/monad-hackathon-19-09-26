@@ -4,6 +4,11 @@
  *
  *   npm run deploy                 déploie et bascule CHAIN_MODE=testnet
  *   npm run deploy -- --keep-mode  déploie sans toucher à CHAIN_MODE
+ *   npm run deploy -- --force      redéploie même si le contrat enregistré existe encore
+ *
+ * Garde-fou : si CONTRACT_ADDRESS porte encore du code on-chain, le script refuse — deux
+ * lancements rapprochés créeraient deux contrats et le second écraserait l'adresse du premier.
+ * Après un reset du testnet, l'ancienne adresse n'a plus de code : le déploiement repart seul.
  */
 import { encodeDeployData, formatEther, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -14,62 +19,76 @@ import { clients, upsertEnv } from "./env";
 
 const { cfg, account, publicClient, wallet, chain } = clients();
 if (!cfg.attestorKey) throw new Error("ATTESTOR_PRIVATE_KEY absente : lancer `npm run setup` d'abord.");
+const attestorKey = cfg.attestorKey;
 
 const chainId = await publicClient.getChainId();
 if (chainId !== chain.id) throw new Error(`RPC sur la chaîne ${chainId}, attendu ${chain.id}`);
 
-// Recompilé à chaque déploiement : le bytecode déployé correspond toujours au source.
-const art = compileSpermRace();
-if (JSON.stringify(art.abi) !== JSON.stringify(spermRaceAbi)) {
-  throw new Error("L'ABI du front ne correspond plus au contrat : lancer `npm run compile` puis redémarrer le serveur.");
+async function deploy() {
+  // Recompilé à chaque déploiement : le bytecode déployé correspond toujours au source.
+  const art = compileSpermRace();
+  if (JSON.stringify(art.abi) !== JSON.stringify(spermRaceAbi)) {
+    throw new Error("L'ABI du front ne correspond plus au contrat : lancer `npm run compile` puis redémarrer le serveur.");
+  }
+  const attestor = privateKeyToAccount(attestorKey).address;
+  const args = [attestor, BigInt(cfg.threshold)] as const;
+
+  const [balance, gasPrice, estimated] = await Promise.all([
+    publicClient.getBalance({ address: account.address }),
+    publicClient.getGasPrice(),
+    publicClient.estimateGas({
+      account,
+      data: encodeDeployData({ abi: spermRaceAbi, bytecode: art.bytecode, args }),
+    }),
+  ]);
+  // Monad facture le gas limit : estimation × 1,075, jamais un limit arbitraire.
+  const gas = withGasMargin(estimated);
+  const cost = gas * gasPrice;
+  console.log(`deployer  ${account.address} · ${formatEther(balance)} MON`);
+  console.log(`attestor  ${attestor}`);
+  console.log(`seuil     ${cfg.threshold} tx`);
+  console.log(`gas       estimé ${estimated} → limit ${gas} · coût max ${formatEther(cost)} MON`);
+  if (balance < cost) throw new Error("Solde insuffisant pour déployer : alimenter le deployer (npm run balance).");
+
+  const hash = await wallet.deployContract({ abi: spermRaceAbi, bytecode: art.bytecode, args, gas, chain });
+  console.log(`tx        ${explorerTx(cfg.explorerUrl, hash)}`);
+  const t0 = performance.now();
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, pollingInterval: 100 });
+  const ms = Math.round(performance.now() - t0);
+  if (receipt.status !== "success" || !receipt.contractAddress) throw new Error(`déploiement reverté : ${hash}`);
+  const address = receipt.contractAddress as Address;
+
+  // Relecture : le contrat en place est bien celui qu'on croit.
+  const [owner, onchainAttestor, threshold] = await Promise.all([
+    publicClient.readContract({ address, abi: spermRaceAbi, functionName: "owner" }),
+    publicClient.readContract({ address, abi: spermRaceAbi, functionName: "attestor" }),
+    publicClient.readContract({ address, abi: spermRaceAbi, functionName: "threshold" }),
+  ]);
+  if (owner !== account.address || onchainAttestor !== attestor || threshold !== BigInt(cfg.threshold)) {
+    throw new Error("relecture incohérente après déploiement");
+  }
+
+  const updates: Record<string, string> = {
+    CONTRACT_ADDRESS: address,
+    CONTRACT_DEPLOY_BLOCK: receipt.blockNumber.toString(),
+  };
+  if (!process.argv.includes("--keep-mode")) updates.CHAIN_MODE = "testnet";
+  upsertEnv(updates);
+
+  console.log(`\nSpermRace déployé en ${ms} ms (reçu), bloc ${receipt.blockNumber}`);
+  console.log(`  adresse   ${address}`);
+  console.log(`  explorer  ${explorerAddress(cfg.explorerUrl, address)}`);
+  console.log(`  gas payé  ${receipt.gasUsed} utilisé / ${gas} facturé (Monad facture le limit)`);
+  console.log(`  .env.local mis à jour${updates.CHAIN_MODE ? " · CHAIN_MODE=testnet" : ""} — redémarrer le serveur.`);
 }
-const attestor = privateKeyToAccount(cfg.attestorKey).address;
-const args = [attestor, BigInt(cfg.threshold)] as const;
 
-const [balance, gasPrice, estimated] = await Promise.all([
-  publicClient.getBalance({ address: account.address }),
-  publicClient.getGasPrice(),
-  publicClient.estimateGas({
-    account,
-    data: encodeDeployData({ abi: spermRaceAbi, bytecode: art.bytecode, args }),
-  }),
-]);
-// Monad facture le gas limit : estimation × 1,075, jamais un limit arbitraire.
-const gas = withGasMargin(estimated);
-const cost = gas * gasPrice;
-console.log(`deployer  ${account.address} · ${formatEther(balance)} MON`);
-console.log(`attestor  ${attestor}`);
-console.log(`seuil     ${cfg.threshold} tx`);
-console.log(`gas       estimé ${estimated} → limit ${gas} · coût max ${formatEther(cost)} MON`);
-if (balance < cost) throw new Error("Solde insuffisant pour déployer : alimenter le deployer (npm run balance).");
-
-const hash = await wallet.deployContract({ abi: spermRaceAbi, bytecode: art.bytecode, args, gas, chain });
-console.log(`tx        ${explorerTx(cfg.explorerUrl, hash)}`);
-const t0 = performance.now();
-const receipt = await publicClient.waitForTransactionReceipt({ hash, pollingInterval: 100 });
-const ms = Math.round(performance.now() - t0);
-if (receipt.status !== "success" || !receipt.contractAddress) throw new Error(`déploiement reverté : ${hash}`);
-const address = receipt.contractAddress as Address;
-
-// Relecture : le contrat en place est bien celui qu'on croit.
-const [owner, onchainAttestor, threshold] = await Promise.all([
-  publicClient.readContract({ address, abi: spermRaceAbi, functionName: "owner" }),
-  publicClient.readContract({ address, abi: spermRaceAbi, functionName: "attestor" }),
-  publicClient.readContract({ address, abi: spermRaceAbi, functionName: "threshold" }),
-]);
-if (owner !== account.address || onchainAttestor !== attestor || threshold !== BigInt(cfg.threshold)) {
-  throw new Error("relecture incohérente après déploiement");
+const existing = cfg.contract && !process.argv.includes("--force") ? await publicClient.getCode({ address: cfg.contract }) : null;
+if (cfg.contract && existing && existing !== "0x") {
+  console.log(`Contrat déjà déployé et actif : ${explorerAddress(cfg.explorerUrl, cfg.contract)}`);
+  console.log("Rien à faire. Pour en créer un nouveau malgré tout : npm run deploy -- --force");
+} else {
+  if (cfg.contract && !process.argv.includes("--force")) {
+    console.log(`Aucun code à ${cfg.contract} (testnet réinitialisé ?) : redéploiement.`);
+  }
+  await deploy();
 }
-
-const updates: Record<string, string> = {
-  CONTRACT_ADDRESS: address,
-  CONTRACT_DEPLOY_BLOCK: receipt.blockNumber.toString(),
-};
-if (!process.argv.includes("--keep-mode")) updates.CHAIN_MODE = "testnet";
-upsertEnv(updates);
-
-console.log(`\nSpermRace déployé en ${ms} ms (reçu), bloc ${receipt.blockNumber}`);
-console.log(`  adresse   ${address}`);
-console.log(`  explorer  ${explorerAddress(cfg.explorerUrl, address)}`);
-console.log(`  gas payé  ${receipt.gasUsed} utilisé / ${gas} facturé (Monad facture le limit)`);
-console.log(`  .env.local mis à jour${updates.CHAIN_MODE ? " · CHAIN_MODE=testnet" : ""} — redémarrer le serveur.`);

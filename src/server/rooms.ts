@@ -31,11 +31,6 @@ import { MAX_RACERS } from "@/sim/track";
 /** Marge après l'arrivée du dernier, pour que chacun voie la fin avant le classement. */
 const FINISH_GRACE_MS = 2_000;
 const MAX_HISTORY = 20;
-/**
- * Âge maximal d'un ticket brûlé. Les raceId sont horodatés : un joinRace ancien ne peut pas
- * être rejoué après un redémarrage du serveur (qui vide la liste des tx déjà utilisées).
- */
-export const MAX_TICKET_AGE_MS = 15 * 60_000;
 
 export interface LobbyOptions {
   engine: RaceEngine;
@@ -135,27 +130,34 @@ export class Lobby {
   // ─── Écriture ─────────────────────────────────────────────────────────────
 
   /**
-   * Admet un joueur dans la room ouverte. Un ticket brûlé pour une course déjà partie
-   * n'est pas perdu : le joueur passe dans la suivante.
+   * Admet un joueur dans la room ouverte. Un ticket brûlé pour une course déjà partie, ou
+   * pour une room qui vient de se remplir, n'est pas perdu : le joueur passe dans la suivante.
    */
   join(req: JoinRequest): { room: RoomSummary; racer: RacerEntry } {
     this.tick();
-    const room = this.open;
     const addr = req.address.toLowerCase();
-
     const tx = req.joinTx?.toLowerCase();
-    if (tx && this.usedTxs.has(tx)) throw new HttpError(409, "this joinRace transaction was already used");
-    if (req.ticketRaceId != null) {
-      const ticket = BigInt(req.ticketRaceId);
-      if (ticket > BigInt(room.raceId)) throw new HttpError(400, "this ticket was burned for a race that does not exist yet");
-      if (ticket < BigInt(this.now() - MAX_TICKET_AGE_MS)) {
-        throw new HttpError(400, "this joinRace transaction is too old — claim a ticket and join the current race");
+
+    if (tx && this.usedTxs.has(tx)) {
+      // Idempotent : la même tx rejouée (réponse HTTP perdue) rend l'inscription existante.
+      for (const r of this.rooms.values()) {
+        const racer = r.racers.find((x) => x.joinTx?.toLowerCase() === tx && x.address?.toLowerCase() === addr);
+        if (racer) return { room: this.summary(r), racer };
       }
+      throw new HttpError(409, "this joinRace transaction was already used");
     }
+    // Le ticket doit viser une room que ce serveur connaît : l'ouverte (quel que soit son âge)
+    // ou une course lancée récemment. Après un redémarrage, les anciens raceId sont inconnus :
+    // un vieux joinRace ne peut pas être rejoué pour entrer gratuitement.
+    if (req.ticketRaceId != null && !this.rooms.has(req.ticketRaceId)) {
+      throw new HttpError(400, "this ticket was burned for a race this server does not know — claim a new ticket and join the current race");
+    }
+
+    if (this.open.racers.length >= this.opts.raceSize) this.launch(this.open);
+    const room = this.open;
     if (room.racers.some((r) => r.address?.toLowerCase() === addr)) {
       throw new HttpError(409, "you are already in this race");
     }
-    if (room.racers.length >= this.opts.raceSize) throw new HttpError(409, "race is full — wait for the next one");
     if (tx) this.usedTxs.add(tx);
 
     const racer: RacerEntry = {
