@@ -14,13 +14,12 @@ et à l'ownership, jamais au gameplay. Lire `README.md` (architecture, commandes
   (assertion libuv sous Windows).
 - Éditer les fichiers avec Edit/Write, jamais par un aller-retour PowerShell 5.1 (il lit l'UTF-8 en ANSI).
 
-## Le jeu marble (pas encore construit)
+## Le jeu marble (circuit Cascade implémenté)
 
-Il se branche sans toucher au lobby ni à la chaîne :
-- moteur : implémenter `RaceEngine` (`src/sim/index.ts`), l'enregistrer, `RACE_ENGINE=planck` ;
-  replay `int16-v1`, `channels: 2` (x, y), 30 Hz ; passer `tests/sim.test.ts` ;
-- rendu : remplacer le `<canvas>` 2D de `src/components/RaceView.tsx` par la scène Three.js,
-  qui lit `RaceDetail.replay` via `ReplayReader` (`src/shared/replay.ts`).
+Lire `docs/CIRCUIT_3D.md`. Moteur Planck dans `src/sim/engine.ts`, géométrie partagée dans
+`src/sim/track.ts`, scène Three.js dans `src/game/scene.ts`. Replay à 2 canaux (x, y), 30 Hz.
+`RACE_ENGINE=planck` est indépendant de `CHAIN_MODE`. Démonstration sans wallet sur `/track`.
+Les tests de physique sont dans `tests/physics.test.ts` ; conserver aussi les tests du stub.
 
 ## Règles Monad appliquées (ne pas les défaire)
 

@@ -35,6 +35,7 @@ export function TopBar({ config, active }: { config: AppConfig | null; active: "
         </span>
       </Link>
       <span className="spacer" />
+      <Link href="/track" className="navlink">Explore the 3D track</Link>
       {config && (
         <span className={`netbadge ${config.mode}`}>
           <span className="dot" aria-hidden="true" />

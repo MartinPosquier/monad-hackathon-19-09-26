@@ -1,32 +1,35 @@
 # Monad Sperm Race — avancement
 
-Suivi des jalons du plan d'exécution. Périmètre de cette passe : **tout sauf le jeu marble**
-(moteur planck, parcours, scène Three.js, caméra, replay 3D). Le jeu se branche sur
-l'interface `RaceEngine` (`src/sim/index.ts`) et sur `RaceDetail.replay`.
+Mise à jour du 19 septembre 2026 : circuit Cascade intégré au lobby et disponible sur `/track`.
+Le jeu utilise Planck pour les collisions en 2D et Three.js pour le parcours en relief,
+les personnages et la caméra. Voir `docs/CIRCUIT_3D.md` pour les limites du modèle.
 
 | # | Jalon | État | Preuve |
 |---|---|---|---|
 | 0 | Socle | ✅ | Next.js 16 + TS, deps (`viem`, `solc`, `three`, `planck`), types partagés, `BlockchainService` stub. `npm run dev` → :3100 |
-| 1 | Sim + replay | ⏸ hors périmètre | Contrat du moteur posé : `RaceEngine`, PRNG seedé, format replay Int16 30 Hz, moteur **stub** déterministe. `npm run simulate -- --seed 0xabc --check` → OK |
-| 2 | Rendu 3D + caméra | ⏸ hors périmètre | Vue 2D provisoire (`RaceView.tsx`) qui lit le même replay |
+| 1 | Sim + replay | ✅ | Moteur Planck seedé, collisions, replay Int16 30 Hz, premier à 40 s, dernier au plus tard à 52 s. Tests sur huit seeds fixes et contrôle du déterminisme |
+| 2 | Rendu 3D + caméra | ✅ | Lance, tourbillon, Galton, échelle, hélices, entonnoir, arrivée et podium. Caméra du joueur, suivi du leader, vue globale, démonstration `/track` |
 | 3 | Lobby + bots | ✅ | Rooms en mémoire, bots étiquetés BOT, compte à rebours, `startAt` commun, « Start now » hôte. Tests `tests/rooms.test.ts` |
-| 4 | Blockchain réelle | 🟡 code prêt, déploiement en attente de MON | `SpermRace.sol` (21 tests sur EVM en mémoire, chain 10143), compile/deploy viem, attestation EIP-712, `claimTicket` + `joinRace` signés par le joueur |
-| 5 | Résultat + leaderboard | ✅ | Podium, « #17 / 50 », temps, classement complet, preuve on-chain, `/leaderboard` |
-| 6 | Polish + démo | 🟡 | UI néon Monad, chrono de finalité, tunnel cloudflared testé (HTTP/2 forcé, QUIC bloqué sur ce réseau), `DEMO.md`, `npm run e2e`. Trails / SPECTATE 3D = jeu ; répétitions = humain |
+| 4 | Blockchain réelle | 🟡 non déployée dans cette passe | Contrat et scripts présents ; les blocages de `AUDIT_MONAD_2026-09-19.md` restent à traiter avant déploiement |
+| 5 | Résultat + leaderboard | ✅ | Podium, « #17 / 40 », temps, classement complet, preuve on-chain, `/leaderboard` |
+| 6 | Polish + démo | 🟡 | Course sobre, rendu instancié, adaptation mobile, pause et curseur sur `/track`. Vérification visuelle desktop/mobile. Performance sur appareil physique et répétition testnet restent à faire |
 
 ## Vérifications du plan
 
 | Vérification | État |
 |---|---|
-| 1. Déterminisme (`simulate --check`) | ✅ stub — à refaire avec le moteur planck |
-| 2. Sanity 5 seeds (`simulate --sanity 5`) | ✅ stub — idem |
+| 1. Déterminisme (`simulate --check`) | ✅ Planck ; également vérifié par test automatique |
+| 2. Sanity multi-seeds | ✅ Planck : huit seeds fixes et vingt aléatoires, 40 arrivants, durée et collisions contrôlées |
 | 3. Lecture du nonce (`npm run nonce -- 0x…`) | ✅ lu sur le testnet (bloc 63 853 980) — recoupement explorer à faire à la main |
 | 4. Frais réels (`npm run verify:fees`) | ⏳ après financement du deployer |
 | 5. Boucle complète sur adresse fraîche | ⏳ après déploiement (humain + MetaMask) |
 | 6. Deux navigateurs + tunnel téléphone | ⏳ humain |
 | 7. Répétition de démo ×2 | ⏳ humain |
 
-## En attente d'un humain
+## Validation locale
 
-- **Envoyer ~2 MON testnet** au deployer `0x9Dc1B2d36b65D8a1E390ef8Ea82FfC93C0bB2e76`
-  (depuis MetaMask). La boucle autonome détecte les fonds et lance `npm run deploy`.
+`npm test` : 59 tests réussis. `npm run lint` et `npm run build` : réussis.
+Version `bed-slide-v3` : glisse par gravité, décor de lit défait, lance de pompier,
+quatre salves de dix espacées d'une seconde, arrivée dans un ovule rond.
+Le mode local reste `CHAIN_MODE=stub` : aucune transaction ni aucun déploiement effectué.
+Il n'y a pas de surveillance automatique des fonds ni de déploiement programmé.

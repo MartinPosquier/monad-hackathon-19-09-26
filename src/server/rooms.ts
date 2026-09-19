@@ -26,6 +26,7 @@ import type {
 } from "@/shared/types";
 import { HttpError } from "./http";
 import { botNames, playerName, racerColor } from "./racers";
+import { MAX_RACERS } from "@/sim/track";
 
 /** Marge après l'arrivée du dernier, pour que chacun voie la fin avant le classement. */
 const FINISH_GRACE_MS = 2_000;
@@ -81,6 +82,7 @@ export class Lobby {
   private readonly randomSeed: () => Hex;
 
   constructor(private readonly opts: LobbyOptions) {
+    this.opts.raceSize = Math.min(MAX_RACERS, Math.max(1, opts.raceSize));
     this.now = opts.now ?? Date.now;
     this.randomSeed = opts.randomSeed ?? (() => `0x${randomBytes(32).toString("hex")}` as Hex);
     this.openRoom();
@@ -121,6 +123,13 @@ export class Lobby {
 
   get openRaceId(): string {
     return this.openId;
+  }
+
+  /** Un changement de moteur ne touche que les prochains départs, jamais les replays en cours. */
+  setEngine(engine: RaceEngine): void {
+    this.opts.engine = engine;
+    // Conserver les courses lancées ; ne réduire que la capacité des nouveaux départs.
+    this.opts.raceSize = Math.min(MAX_RACERS, this.opts.raceSize);
   }
 
   // ─── Écriture ─────────────────────────────────────────────────────────────
@@ -287,7 +296,7 @@ export class Lobby {
     }
   }
 
-  /** Les replays pèsent ~100 Ko : on ne garde que les dernières courses terminées. */
+  /** Les replays 3D pèsent ~600 Ko : on ne garde que les dernières courses terminées. */
   private prune() {
     const finished = [...this.rooms.values()].filter((r) => r.status === "finished");
     for (const r of finished.slice(0, Math.max(0, finished.length - MAX_HISTORY))) this.rooms.delete(r.raceId);

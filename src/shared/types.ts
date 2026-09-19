@@ -72,6 +72,12 @@ export interface RankingEntry {
  * valeur réelle = int16 / scale. Le client rejoue, il ne resimule jamais.
  */
 export interface ReplayData {
+  track?: string;
+  finishTimes?: number[];
+  /** Conversion de l'horloge replay vers l'horloge physique pour les obstacles mobiles. */
+  clock?: { firstPhysical: number; firstReplay?: number; headScale: number; tailScale: number; launchWindow?: number };
+  /** Départs physiques et visibles, par salves de dix à 0, 1, 2 et 3 secondes. */
+  releaseTimes?: number[];
   format: "int16-v1";
   engine: string;
   hz: number;

@@ -27,7 +27,7 @@ export function serverConfig() {
     contract: contract && /^0x[0-9a-fA-F]{40}$/.test(contract) ? (contract as Address) : null,
     /** Seuil du mode stub, et valeur passée au constructeur lors du déploiement. */
     threshold: int("QUALIFY_THRESHOLD", 5),
-    raceSize: Math.min(Math.max(int("RACE_SIZE", 50), 2), 50),
+    raceSize: Math.min(Math.max(int("RACE_SIZE", 40), 2), 40),
     lobbySeconds: int("LOBBY_SECONDS", 45),
     prestartSeconds: int("PRESTART_SECONDS", 6),
     submitResults: process.env.SUBMIT_RESULTS !== "0",

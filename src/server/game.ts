@@ -29,5 +29,9 @@ export function getLobby(): Lobby {
     G.__msrTimer ??= setInterval(() => G.__msrLobby?.tick(), 500);
     G.__msrTimer.unref?.();
   }
+  // Le singleton survit au hot reload ; appliquer le moteur courant sans perdre les rooms.
+  // Migration en développement des instances créées avant l'ajout de setEngine.
+  if (Object.getPrototypeOf(G.__msrLobby) !== Lobby.prototype) Object.setPrototypeOf(G.__msrLobby, Lobby.prototype);
+  G.__msrLobby.setEngine(getEngine());
   return G.__msrLobby;
 }

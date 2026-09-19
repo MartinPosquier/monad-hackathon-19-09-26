@@ -18,7 +18,7 @@ let finished: Room[];
 function makeLobby(onFinished?: (room: Room) => Promise<Hash | null>) {
   return new Lobby({
     engine: stubEngine,
-    raceSize: 50,
+    raceSize: 40,
     lobbyMs: LOBBY_MS,
     prestartMs: PRESTART_MS,
     now: () => clock,
@@ -87,7 +87,7 @@ describe("room ouverte", () => {
 });
 
 describe("course complète", () => {
-  it("open → starting → running → finished, bots jusqu'à 50, podium publié", async () => {
+  it("open → starting → running → finished, bots jusqu'à 40, podium publié", async () => {
     const lobby = makeLobby();
     lobby.join({ address: A, name: "Alice", joinTx: tx(1) });
     lobby.join({ address: B, name: "Bob", joinTx: tx(2) });
@@ -99,12 +99,12 @@ describe("course complète", () => {
     expect(BigInt(afterLaunch.open.raceId)).toBeGreaterThan(BigInt(raceId));
     const starting = lobby.race(raceId)!;
     expect(starting.status).toBe("starting");
-    expect(starting.racers).toHaveLength(50);
-    expect(starting.racers.filter((r) => r.isBot)).toHaveLength(48);
+    expect(starting.racers).toHaveLength(40);
+    expect(starting.racers.filter((r) => r.isBot)).toHaveLength(38);
     expect(starting.racers.slice(0, 2).map((r) => r.name)).toEqual(["Alice", "Bob"]);
     expect(starting.replay).not.toBeNull();
     expect(starting.ranking).toBeNull(); // pas de spoiler avant la fin
-    expect(new Set(starting.racers.map((r) => r.color)).size).toBe(50);
+    expect(new Set(starting.racers.map((r) => r.color)).size).toBe(40);
 
     clock = starting.startAt!;
     expect(lobby.race(raceId)!.status).toBe("running");
@@ -112,7 +112,7 @@ describe("course complète", () => {
     clock = starting.finishAt!;
     const done = lobby.race(raceId)!;
     expect(done.status).toBe("finished");
-    expect(done.ranking).toHaveLength(50);
+    expect(done.ranking).toHaveLength(40);
     expect(finished.map((r) => r.raceId)).toEqual([raceId]);
 
     await vi.waitFor(() => expect(lobby.race(raceId)!.submitTx).toBe(tx(999)));
@@ -130,14 +130,14 @@ describe("course complète", () => {
     }
   });
 
-  it("« Start now » lance une course de 50 bots même sans humain (démo sans chaîne)", () => {
+  it("« Start now » lance une course de 40 bots même sans humain (démo sans chaîne)", () => {
     const lobby = makeLobby();
     const raceId = lobby.openRaceId;
     const started = lobby.hostStart();
     expect(started.raceId).toBe(raceId);
     expect(started.status).toBe("starting");
     expect(started.racers.every((r) => r.isBot)).toBe(true);
-    expect(started.racers).toHaveLength(50);
+    expect(started.racers).toHaveLength(40);
   });
 
   it("un ticket brûlé pendant qu'une course part donne une place dans la suivante", () => {

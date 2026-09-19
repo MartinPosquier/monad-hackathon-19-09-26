@@ -5,12 +5,12 @@
  * reçoit un classement et des trajectoires. La course entière est jouée d'un coup, côté
  * serveur, pendant le compte à rebours ; le client ne fait que rejouer.
  *
- * Aujourd'hui seul le moteur `stub` existe (progression seedée, sans physique). Le moteur
- * planck (jalon 1 du plan : src/sim/track.ts + src/sim/engine.ts) s'enregistre ici, avec
- * un replay à 2 canaux (x, y), sans toucher au lobby ni à l'UI.
+ * Le moteur `planck` est le circuit Cascade, avec collisions et replay (x, y) à 30 Hz.
+ * Le moteur `stub` reste disponible pour les contrôles historiques et les diagnostics.
  */
 import type { Hex, RaceResult, RacerEntry } from "@/shared/types";
 import { stubEngine } from "./stubEngine";
+import { planckEngine } from "./engine";
 
 export interface RaceInput {
   seed: Hex;
@@ -25,9 +25,10 @@ export interface RaceEngine {
 
 const ENGINES: Record<string, RaceEngine> = {
   [stubEngine.name]: stubEngine,
+  [planckEngine.name]: planckEngine,
 };
 
-export function getEngine(name = process.env.RACE_ENGINE || "stub"): RaceEngine {
+export function getEngine(name = process.env.RACE_ENGINE || "planck"): RaceEngine {
   const engine = ENGINES[name];
   if (!engine) throw new Error(`moteur de course inconnu : ${name} (disponibles : ${Object.keys(ENGINES).join(", ")})`);
   return engine;

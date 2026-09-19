@@ -1,6 +1,6 @@
 # Monad Sperm Race
 
-Course de spectateurs sur le testnet Monad. Jusqu'à 50 racers avancent seuls dans un parcours
+Course de spectateurs sur le testnet Monad. Jusqu'à 40 racers avancent seuls dans un parcours
 chaotique ; le joueur ne contrôle rien et regarde le sien. La blockchain sert **exclusivement** à la
 qualification et à l'ownership, jamais au gameplay :
 
@@ -55,15 +55,18 @@ sur l'horloge du serveur.
 contracts/SpermRace.sol       qualification + ownership, ~120 lignes, aucune fonction payable
 scripts/                      compile (solc npm), deploy (viem), setup, balance, threshold, nonce, verify-fees, simulate
 src/shared/                   types front/serveur, constantes Monad, EIP-712, codec du replay
-src/sim/index.ts              interface RaceEngine ← le moteur planck se branche ici
+src/sim/index.ts              interface RaceEngine, sélection du moteur planck par défaut
+src/sim/engine.ts             collisions Planck, classement et replay déterministes
+src/sim/track.ts              géométrie commune de Cascade
 src/sim/stubEngine.ts         moteur provisoire : progression seedée, sans physique
+src/game/                    scène Three.js, caméra et lecture du replay
 src/sim/prng.ts               mulberry32 seedé
 src/server/rooms.ts           lobby : rooms, bots, compte à rebours, classement, leaderboard
 src/server/attest.ts          nonce → attestation EIP-712
 src/server/chain.ts           lectures, vérification des joinRace, publication des podiums
 src/lib/blockchain/           BlockchainService : stub ↔ viem (MetaMask), bascule par CHAIN_MODE
 src/app/api/                  config · player · proof · lobby · join · race · host · leaderboard
-src/components/               UI : parcours joueur, chrono de finalité, grille, course 2D provisoire, résultats
+src/components/               UI : parcours joueur, chrono de finalité, grille, course 3D, résultats
 ```
 
 ### Pourquoi une attestation
@@ -91,10 +94,17 @@ La course est jouée **entièrement côté serveur au lancement**, à partir d'u
 le classement existe avant la première image, le client ne fait que rejouer des trajectoires.
 Le seed et le podium sont publiés par `submitResult()`, qui refuse toute réécriture d'une course.
 
-## Brancher le vrai jeu
+## Circuit 3D Cascade
 
-Le moteur physique implémente `RaceEngine.simulate({ seed, racers }) → RaceResult` et s'enregistre
-dans `src/sim/index.ts` (`RACE_ENGINE=planck`). Son replay utilise le même format (`int16-v1`)
-avec `channels: 2` (x, y) à 30 Hz. La scène Three.js remplace le `<canvas>` de
-`src/components/RaceView.tsx` en lisant `RaceDetail.replay` via `ReplayReader`. Les tests de
-`tests/sim.test.ts` décrivent le contrat que le moteur doit tenir.
+Le circuit est implémenté : lance → tourbillon → Galton → échelle → hélices → entonnoir → arrivée.
+Le toboggan coloré surplombe un lit défait. Une lance de pompier émet quatre salves de dix
+à 0, 1, 2 et 3 secondes ; la glisse suit la gravité et les collisions jusqu'à un ovule rond.
+Le classement reste celui de l'ordre d'arrivée, sans compensation du départ décalé.
+Ouvrir **http://localhost:3100/track** pour la démonstration sans wallet, avec pause et curseur de replay.
+Un lien « Explore the 3D track » est également présent dans le lobby.
+
+`RACE_ENGINE=planck` active le moteur physique (par défaut si la variable est absente).
+`CHAIN_MODE=stub` continue de permettre le jeu sans blockchain ; les deux réglages sont indépendants.
+La caméra suit le participant inscrit à la troisième personne. Premier à 40 s, dernier au plus tard à 52 s.
+
+Détails de la physique, réglage du rythme, fichiers et contrôles : [docs/CIRCUIT_3D.md](docs/CIRCUIT_3D.md).

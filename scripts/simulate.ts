@@ -4,7 +4,7 @@
  *   npm run simulate -- --seed 0xabc            une course
  *   npm run simulate -- --seed 0xabc --check    deux fois le même seed : classements identiques ?
  *   npm run simulate -- --sanity 5              5 seeds aléatoires : invariants du plan
- *   options : --racers 50  --engine stub
+ *   options : --racers 40  --engine planck (défaut) ou stub
  *
  * Avec le moteur stub, seul le nombre de racers compte : le classement d'une vraie course
  * se vérifie donc avec son seed seul.
@@ -26,8 +26,8 @@ function normalizeSeed(raw: string): Hex {
   return `0x${hex.padStart(64, "0")}` as Hex;
 }
 
-const count = Number(arg("racers") ?? 50);
-const engine = getEngine(arg("engine") ?? "stub");
+const count = Number(arg("racers") ?? 40);
+const engine = getEngine(arg("engine") ?? "planck");
 const racers: RacerEntry[] = Array.from({ length: count }, (_, id) => ({
   id,
   name: `racer-${String(id).padStart(2, "0")}`,
@@ -51,7 +51,9 @@ function invariants(r: RaceResult): string[] {
   if (r.ranking.length !== count) problems.push(`${r.ranking.length} arrivants sur ${count}`);
   const spread = r.ranking.at(-1)!.finishMs - r.ranking[0].finishMs;
   if (spread >= 20_000) problems.push(`écart premier–dernier ${spread} ms ≥ 20 s`);
-  if (r.durationMs < 60_000 || r.durationMs > 90_000) problems.push(`durée ${r.durationMs} ms hors [60 s, 90 s]`);
+  const min = r.engine === "planck" ? 40_000 : 60_000;
+  const max = r.engine === "planck" ? 52_000 : 90_000;
+  if (r.durationMs < min || r.durationMs > max) problems.push(`durée ${r.durationMs} ms hors [${min}, ${max}]`);
   return problems;
 }
 
